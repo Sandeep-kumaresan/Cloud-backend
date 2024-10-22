@@ -1,5 +1,8 @@
 Flask
+Flask-WTF
+Flask-Session
 pymongo
 dnspython
 python-dotenv
+Werkzeug
 gunicorn

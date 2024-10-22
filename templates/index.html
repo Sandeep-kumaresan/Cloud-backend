@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+    <h1>Welcome {{ session['username'] }}</h1>
+    <form method="POST" action="{{ url_for('add_task') }}">
+        <div class="form-group">
+            <label for="content">Add Task</label>
+            <input type="text" class="form-control" id="content" name="content" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Add</button>
+    </form>
+    <h2>Your Tasks</h2>
+    <ul class="list-group">
+        {% for task in tasks %}
+            <li class="list-group-item">
+                {{ task['content'] }}
+                <form method="POST" action="{{ url_for('update_task', task_id=task['_id']) }}" class="d-inline">
+                    <input type="text" name="content" class="form-control d-inline" style="width: auto;" value="{{ task['content'] }}" required>
+                    <button type="submit" class="btn btn-success btn-sm">Update</button>
+                </form>
+                <a href="{{ url_for('delete_task', task_id=task['_id']) }}" class="btn btn-danger btn-sm">Delete</a>
+            </li>
+        {% endfor %}
+    </ul>
+{% endblock %}

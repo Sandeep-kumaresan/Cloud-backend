@@ -1,54 +1,94 @@
-from flask import Flask, request, jsonify
+from flask import Flask, render_template, redirect, url_for, request, session, flash
+from flask_session import Session
 from pymongo import MongoClient
-import os
 from bson.objectid import ObjectId
+from forms import RegistrationForm, LoginForm
+from werkzeug.security import generate_password_hash, check_password_hash
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.urandom(24)
+app.config['SESSION_TYPE'] = 'filesystem'
+Session(app)
 
-# MongoDB configuration
 MONGO_URI = os.getenv('MONGO_URI')
 client = MongoClient(MONGO_URI)
-db = client.mydatabase
-collection = db.mycollection
+db = client.flask_app
+users_collection = db.users
+tasks_collection = db.tasks
 
-@app.route('/items', methods=['POST'])
-def create_item():
-    data = request.json
-    result = collection.insert_one(data)
-    return jsonify({'_id': str(result.inserted_id)}), 201
+@app.route('/')
+def index():
+    if 'username' in session:
+        username = session['username']
+        tasks = list(tasks_collection.find({'username': username}))
+        return render_template('index.html', tasks=tasks)
+    return redirect(url_for('login'))
 
-@app.route('/items', methods=['GET'])
-def get_items():
-    items = list(collection.find())
-    for item in items:
-        item['_id'] = str(item['_id'])
-    return jsonify(items), 200
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    form = RegistrationForm()
+    if form.validate_on_submit():
+        hashed_password = generate_password_hash(form.password.data, method='pbkdf2:sha256')
+        user = {
+            'username': form.username.data,
+            'password': hashed_password
+        }
+        users_collection.insert_one(user)
+        flash('Registration successful! You can now log in.', 'success')
+        return redirect(url_for('login'))
+    return render_template('register.html', form=form)
 
-@app.route('/items/<id>', methods=['GET'])
-def get_item(id):
-    item = collection.find_one({'_id': ObjectId(id)})
-    if item:
-        item['_id'] = str(item['_id'])
-        return jsonify(item), 200
-    return jsonify({'error': 'Item not found'}), 404
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    form = LoginForm()
+    if form.validate_on_submit():
+        user = users_collection.find_one({'username': form.username.data})
+        if user and check_password_hash(user['password'], form.password.data):
+            session['username'] = user['username']
+            flash('Login successful!', 'success')
+            return redirect(url_for('index'))
+        flash('Invalid username or password', 'danger')
+    return render_template('login.html', form=form)
 
-@app.route('/items/<id>', methods=['PUT'])
-def update_item(id):
-    data = request.json
-    result = collection.update_one({'_id': ObjectId(id)}, {'$set': data})
-    if result.modified_count:
-        return jsonify({'message': 'Item updated'}), 200
-    return jsonify({'error': 'Item not found'}), 404
+@app.route('/logout')
+def logout():
+    session.pop('username', None)
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
 
-@app.route('/items/<id>', methods=['DELETE'])
-def delete_item(id):
-    result = collection.delete_one({'_id': ObjectId(id)})
-    if result.deleted_count:
-        return jsonify({'message': 'Item deleted'}), 200
-    return jsonify({'error': 'Item not found'}), 404
+@app.route('/add_task', methods=['POST'])
+def add_task():
+    if 'username' in session:
+        username = session['username']
+        task_content = request.form['content']
+        task = {
+            'username': username,
+            'content': task_content,
+        }
+        tasks_collection.insert_one(task)
+        flash('Task added successfully!', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/delete_task/<task_id>')
+def delete_task(task_id):
+    if 'username' in session:
+        task = tasks_collection.find_one({'_id': ObjectId(task_id)})
+        if task and task['username'] == session['username']:
+            tasks_collection.delete_one({'_id': ObjectId(task_id)})
+            flash('Task deleted successfully!', 'success')
+    return redirect(url_for('index'))
+
+@app.route('/update_task/<task_id>', methods=['POST'])
+def update_task(task_id):
+    if 'username' in session:
+        new_content = request.form['content']
+        tasks_collection.update_one({'_id': ObjectId(task_id)}, {'$set': {'content': new_content}})
+        flash('Task updated successfully!', 'success')
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
